@@ -1,3 +1,5 @@
+from termcolor import colored
+
 class Interface:
 
     def __init__(self, id):
@@ -39,4 +41,4 @@ class Interface:
         return self.description
 
     def toString(self):
-        print(self.id + "\t"+self.mode+"\t"+self.vlans)
+        return (self.id + "\t\t"+self.mode+"\t"+self.vlans)

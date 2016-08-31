@@ -1,3 +1,6 @@
+from termcolor import colored
+
+
 class Device:
 
     def __init__(self, name, ipaddress):
@@ -5,6 +8,11 @@ class Device:
         self.ipaddress = ipaddress
         self.ifaces = []
         self.vlans = []
+        self.mac = ''
+        self.serviceTag = ''
+        self.firmVersion = ''
+        self.serial = ''
+        self.model = ''
 
     '''
         Setters
@@ -61,7 +69,8 @@ class Device:
         for iface in self.ifaces:
             if iface.id == ifaceID:
                 return iface
-        print ("@device.getIface -> Interface " + iface.id + " was not found!")
+        if debug:
+            print ("@device.getIface -> Interface " + iface.id + " was not found!")
 
     def addVlan(self, vlan):
         self.vlans.append(vlan)
@@ -76,30 +85,33 @@ class Device:
     def addPortChannel(self, channelGroup):
         self.channelGroups.append(channelGroup)
         # Order channel group for id
-        print "Channel Group " + channelGroup.id + "added with success !"
+        print colored("Channel Group " + channelGroup.id + "added with success !",'green')
 
 
     def addInterface(self, iface):
         self.ifaces.append(iface)
         # order interface list again
-        print "Interface " + iface.name + "added with success !"
+        print colored("Interface " + iface.id + " added to "+ self.name +" with success !",'green')
 
     def removeInterface(self, iface):
         self.IFs.remove(iface)
-        print "Interface " + iface.name + "removed with success !"
+        print colored("Interface " + iface.name + "removed with success !",'green')
 
     def removePortChannel(self, channelGroup):
         self.channelGroups.remove(channelGroup)
-        print "Channel Group " + channelGroup.id + "removed with success !"
+        print colored("Channel Group " + channelGroup.id + "removed with success !",'green')
 
     def toString(self):
-        print ("Device: "+ self.name + " IP Address: "+ self.ipaddress + " Model: "+ self.model + "\nMAC Address "+ self.mac + "Service Tag: "+self.serviceTag + \
-               " Serial Number: " + self.serial + " Firmware Version: " + self.firmVersion )
-        print("\n\tVlan:\tName\tIP Address\n")
-        print("-----------------------------------------------------------------------")
+        output = ''
+        output+=("Device: "+ self.name + " IP Address: "+ self.ipaddress + " Model: "+ self.model + "\nMAC Address "+ self.mac + "Service Tag: "+self.serviceTag + \
+               " Serial Number: " + self.serial + " Firmware Version: " + self.firmVersion+"\n" )
+        output+=("\tVlan:\tName\tIP Address\n-----------------------------------------------------------------------\n")
+
         for vlan in self.vlans:
-            print("\t" + vlan.toString())
-        print("\n\tID\tMode\t\tVlans\t\n")
-        print("-----------------------------------------------------------------------------------------------------")
+            output+= ("\t" + vlan.toString())
+        output+= ("\nID\t\tMode\t\tVlans\t\n-----------------------------------------------------------------------------------------------------\n")
+        #print colored("ID: "+self.ifaces[0].id+" Mode: "+self.ifaces[0].mode+" Vlans: "+self.ifaces[0].vlans+"asdasd",'cyan')
+        #print colored("Ifaces length "+str(len(self.ifaces)),'cyan')
         for iface in self.ifaces:
-            print("\t" + iface.toString())
+           output+= (iface.toString()+"\n")
+        return output

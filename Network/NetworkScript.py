@@ -3,11 +3,8 @@ from __future__ import print_function
 from netmiko import ConnectHandler
 from DataStructures import Device,Interface,Vlan,ChannelGroup
 from os import path
-import argparse
-import os
-import sys
-import time
-import socket;
+import argparse, os, sys, time, socket
+from termcolor import colored
 
 # import thread
 
@@ -87,7 +84,7 @@ def parseArgs():
     # if TFTP IP exists and valid use it for config transfer
     if tftpIP != None:
         if not validate_IPv4(tftpIP):
-            print('TFTP IP address is not valid.')
+            print (colored('TFTP IP address is not valid.','red'))
             sys.exit()
         useTFTP = True
     # else save it locally
@@ -163,7 +160,7 @@ def createConfigDir():
 
 def getSystemName(brand):
     if debug:
-        print("\tObtaining Name and  Model version: ")
+        print (colored("\t@getSystemName -> Obtaining Name and  Model version...",'yellow'))
 
     name = ''
     model = ''
@@ -199,14 +196,12 @@ def getSystemName(brand):
                     print(model)
                 break
     else:
-        print("Unrecognized system brand @ 'parseSystemOutput'.")
+        print (colored("Unrecognized system brand @ 'parseSystemOutput'.",'red'))
     return name, model
 
-def parseSwitchDetails(device):
-
-    # Files ifstatusFile, versionFile, systemIDFile
-    # Parsing interface status
-    print ("Parsing Interfaces Information\n")
+def parseInterfaceStatus(device):
+    if debug:
+        print (colored("@parseInterfaceStatusParsing Interfaces Information",'yellow'))
 
     '''
         0 - start
@@ -214,8 +209,11 @@ def parseSwitchDetails(device):
         2 - portchannels
     '''
     counter = 0
+    i = 0
     vlanNextLine = False
+
     for line in ifstatusFile.splitlines():
+        i+=1
 
         # In case vlans exceed more than one line
         if vlanNextLine == True:
@@ -226,60 +224,77 @@ def parseSwitchDetails(device):
                 vlanNextLine = False
                 iface.vlans = ifaceVlans
                 device.addInterface(iface)      #add interface
-                print ("Interface "+ iface.name + " added to "+ device.name +"successfully!")
+                print ("Interface "+ iface.id + " added to "+ device.name +"successfully!")
                 continue
 
         if counter == 1:    #read interfaces
+
             # Read Interface Name and instantiate interface
+            if (len(line) == 0):
+                counter+=1
+                print (colored("Counter incremented, no more physical interfaces",'red'))
+                continue
+
             ifName = line[0:9].strip()
             iface = Interface.Interface(ifName)
 
             # Read Interface Status
             ifStatus = line[46:51].strip().lower()
+
             if ifStatus == "up":
                 iface.status = 1
             elif ifStatus == "down":
                 iface.status = 1
             else:
-                print ("Misread interface status information. Result: "+ifStatus)
-                iface.status = 0
+                print (colored("Misread interface status information. Result: "+ifStatus,'red'))
+                print(colored("Line:\n" + line), 'blue')
+                iface.status = 0        #consider the interface down
 
-            print ("IF Name: "+ifName+"\n")
+            #Read and add Switchport Mode to device
+            ifMode = line[59:62].strip().upper()
 
-            #Read Switchport Mode
-            ifMode = line[59:62].strip().upper()[0]
             if (ifMode != 'A') & (ifMode != 'G') & (ifMode != 'T'):
-                print ("Misread switchport mode information. Result: "+ifMode)
+                print (colored("Misread switchport mode information. Result: "+ifMode,'red'))
+                print (colored("Line:\n"+line),'blue')
             else:
                 iface.mode = ifMode
 
-            print("IF Mode: "+ iface.mode+"\n")
-            #Read Vlans
-            ifaceVlans = line[64:].strip()
+            # Read and add Vlans to device
+            ifaceVlans = line[62:].strip()
             if ifaceVlans.endswith(','):
                 vlanNextLine = True
                 continue
             else:
                 vlanNextLine = False
                 iface.vlans = ifaceVlans
-                device.addInterface(iface)
-                print("Interface " + iface.name + " added to " + device.name + "successfully!")
+                device.addInterface(iface)      #adding interface to device
 
         elif counter == 2:  #read port channels
-            print ("Port Channel not yet programmed!")
-            continue
+            print (colored("Port Channels feature not yet programmed!",'red'))
+            break
         else:
             if line.startswith('------'):
                 counter += 1
             continue
 
-        print("\n--------------------------------------------------------------------------------------")
-        print ("Printing "+device.getName()+" information")
-        print (device.toString())
-        print("\n--------------------------------------------------------------------------------------")
+    if debug:
+        print (colored("Printing " + device.getName() + " information to 'Check' file. Total: "+str(i)+" interfaces.",'yellow'))
+    #print (colored(device.toString()),'cyan')  # print all device details
+
+    # Save to file 'check' all device details
+    check = open("check", "w")  # create file
+    check.write(device.toString())
+    check.close()
+
+def parseSwitchDetails(device):
+
+    # Files ifstatusFile, versionFile, systemIDFile
+    # Parsing interface status
+    parseInterfaceStatus(device)
+    sys.exit()
 
     # Parsing version
-    print("Parsing Version Information\n")
+    print (colored("Parsing Version Information\n",'yellow'))
 
     readFirm = False
     for line in versionFile.splitlines():
@@ -294,7 +309,7 @@ def parseSwitchDetails(device):
             readFirm = True
 
     # Parsing system id
-    print ("Parsing System id information, namely Service Tag")
+    print (colored("Parsing System id information, namely Service Tag",'yellow'))
 
     for line in systemIDFile.splitlines():
         if "Service Tag:" in line:
@@ -303,8 +318,7 @@ def parseSwitchDetails(device):
 
     # Parsing show vlan file (vlans)
     for line in vlanFile.splitlines():
-        #if no information on that line, move on
-        if line[0] == ' ':
+        if line[0] == ' ':          #if no information on that line, move on
             continue
 
         #Obtain Vlan info
@@ -316,6 +330,7 @@ def parseSwitchDetails(device):
         device.addVlan(vlan)            #add vlan to device
 
     # Parsing Show run config (interface description)
+    print(colored("Parsing running config, namely IF description", 'yellow'))
     descDepth = False
     for line in runConfigFile.splitlines():
 
@@ -328,7 +343,7 @@ def parseSwitchDetails(device):
                 ifaceObj = device.ifaces.getIface(ifaceID)
                 ifaceObj.setIfaceDescription(line.split("description").strip())
                 if debug:
-                    print ("Interface "+ifaceID+" was found!")
+                    print (colored("Interface "+ifaceID+" was found!",'green'))
                 descDepth = False
         elif (("Interface " in line) & (not descDepth)):
             # Verify if interface is on device list
@@ -340,7 +355,7 @@ def obtainSwitchDetails(conn, device):
     global ifstatusFile, versionFile, systemIDFile, vlanFile
 
     if debug:
-        print ("Obtaining Switch Details")
+        print (colored("@obtainSwitchDetails -> Obtaining Switch Details",'yellow'))
 
     #conn.disable_paging()
     conn.send_command(' terminal length 0')
@@ -364,21 +379,21 @@ def obtainSwitchDetails(conn, device):
         print(vlanFile)
 
     if debug:
-        print ("@obtainSwitchDetails -> Switch information retrieved with success!\n")
-
+        print (colored("@obtainSwitchDetails -> Switch information retrieved with success!",'green'))
 
 def closeConnection(conn):
     # Clean and close connection
     conn.cleanup()
     conn.disconnect()
 
-    print("\tConnection to " + host[0] + " successfully closed!\n")
+    print (colored("Connection to " + host[0] + " successfully closed!",'green'))
 
 def obtainConfigs(conn, name, ip):
     global date, tftpIP, runConfigFile
-    print("\tObtaining Startup-config...")
+    print (colored("\tObtaining Startup-config...",'yellow'))
+
     if debug:
-        print("\t\tTFTP: " + str(useTFTP) + " TFTP Server: " + str(tftpIP))
+        print(colored("\t\tTFTP: " + str(useTFTP) + " TFTP Server: " + str(tftpIP),'yellow'))
 
     #If no TFTP then just read and store running config
     if not useTFTP:
@@ -390,7 +405,7 @@ def obtainConfigs(conn, name, ip):
         runConfigFile = output      #save run config to file
 
         if debug:
-            print("\tWriting running config...")
+            print (colored("\tWriting running config...",'yellow'))
 
         configFile.write(output)
         configFile.close()
@@ -472,7 +487,8 @@ before = time.time()
 
 for host in hosts:
     nDevices += 1
-    print('-> Processing host %d %s (%s)...' % (nDevices, host[0], host[1].upper()))
+    print (colored('----------------------------------------------------------------------------------'))
+    print(colored('-> Processing host %d %s (%s)...' % (nDevices, host[0], host[1].upper()),'yellow'))
 
     # Initialize equipment properties and establish connection
     conn = initDeviceProperties(host)
@@ -480,8 +496,6 @@ for host in hosts:
         print("Moving to next node.")
         continue
 
-    if debug:
-        print('enable')
     conn.enable()  # enable switch
 
     # Obtain model and name
@@ -514,5 +528,5 @@ duration = (after - before)
 
 print("Equipments processed: %d [Dell: %d HP: %d] in %.1f secs (~%.1f secs/device). \n" % (
 len(hosts), (dellIdx - 1), (hpIdx - 1), duration, duration / nDevices))
-#CHANGED
+
 

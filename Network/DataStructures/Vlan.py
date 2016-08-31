@@ -14,4 +14,4 @@ class Vlan:
         return self.name
 
     def toString(self):
-        print(self.id + "\t" + self.name + "\t" + self.ipaddress)
+        return (self.id + "\t" + self.name + "\t" + self.ipaddress)
