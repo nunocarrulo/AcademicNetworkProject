@@ -1,0 +1,517 @@
+#!/usr/bin/env python
+from __future__ import print_function
+from netmiko import ConnectHandler
+from DataStructures import Device,Interface,Vlan,ChannelGroup
+from os import path
+import argparse
+import os
+import sys
+import time
+import socket;
+
+# import thread
+
+def initGlobalVariables():
+
+    # Global structures and variables
+    global user, pwd, hosts, name, model, dellIdx, hpIdx, dell, hp, hosts, myIP, tftpIP, useTFTP, date
+    global runConfigFile, ifstatusFile, versionFile, systemIDFile, vlanFile
+    global debug, retInfo
+    global devices
+    devices = []
+    tftpIP = None
+    useTFTP = False
+    hosts = []
+    dell = [{}]
+    hp = [{}]
+    user = 'nunoadmin'
+    pwd = '12345lol'
+    #user = 'linkcomadmin'
+    #pwd = 'ascoin2004'
+    hosts = [('192.168.0.13','dell')]
+    #hosts=[('192.168.1.19', 'dell'), ('192.168.1.32', 'dell'), ('192.168.1.36', 'hp')]
+    dellIdx = 1
+    hpIdx = 1
+
+    date = (time.strftime("%d%m%y"))    ## dd/mm/yyyy format
+
+# Obtain my IP address
+# myIP=getMyIP()
+
+def getMyIP():
+    if os.name != "nt":
+        import fcntl
+        import struct
+        def get_interface_ip(ifname):
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            return socket.inet_ntoa(fcntl.ioctl(s.fileno(), 0x8915,
+                                                struct.pack('256s', ifname[:15]))[20:24])
+
+    def get_lan_ip():
+        ip = socket.gethostbyname(socket.gethostname())
+        if ip.startswith("127.") and os.name != "nt":
+            interfaces = [
+                "eth0", "eth1", "eth2", "wlan0",
+                "wlan1", "wifi0", "ath0", "ath1", "ppp0", ]
+            for ifname in interfaces:
+                try:
+                    ip = get_interface_ip(ifname)
+                    break
+                except IOError:
+                    pass
+        return ip
+
+    return get_lan_ip()
+
+def parseArgs():
+    global useTFTP, tftpIP, debug, retInfo
+    parser = argparse.ArgumentParser()
+    parser.set_defaults(debug=False)
+    # parser.add_option("-f", "--file", action="store", type="string", help="path to FILE containing the equipment IP addresses")
+    # parser.add_argument("-f", "--file", action="store_true", help="path to FILE containing the equipment IP addresses")
+    #parser.add_argument('-f', dest="filename", action='store', required='True',
+    #                    help="path to FILE containing the equipment IP addresses. Example: /home/nuno/Documents/lol.txt")
+    parser.add_argument('-t', dest="tftp_IP", action="store",
+                        help="IP address of TFTP server")
+    parser.add_argument('-i', dest="retInfo", action="store_true",
+                        help="Retrieve switch details")
+    parser.add_argument('-d', dest="debug", action="store_true",
+                        help="Debug mode")
+
+
+    args = parser.parse_args()
+    debug = args.debug
+    tftpIP = args.tftp_IP
+    retInfo = args.retInfo
+
+    # if TFTP IP exists and valid use it for config transfer
+    if tftpIP != None:
+        if not validate_IPv4(tftpIP):
+            print('TFTP IP address is not valid.')
+            sys.exit()
+        useTFTP = True
+    # else save it locally
+    else:
+        useTFTP = False
+
+    # Check if TFTP is running
+    '''sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1)
+    result = sock.connect((tftpIP, 69))
+    sock.close()
+    #result = sock.connect_ex((tftpIP,69))
+    if result == 0:
+           print ("Port is open")
+    else:
+           print ("Port is not open")
+           print ("TFTP Server is not listening on "+tftpIP+" ! Exiting...")
+           sys.exit()
+    '''
+
+    # Read and store file contents
+    #readFile(args.filename)
+
+def validate_IPv4(s):
+    a = s.split('.')
+    if len(a) != 4:
+        return False
+    for x in a:
+        if not x.isdigit():
+            return False
+        i = int(x)
+        if i < 0 or i > 255:
+            return False
+    return True
+
+def readFile(path):
+    # Check if file exists
+    if not os.path.isfile(path):
+        print('The file does not exist.')
+        sys.exit()
+    f = open(path, 'r')  # open file
+
+    # Read and parse file
+    for line in f.read().strip().split('\n'):
+        if line.startswith('#'):  # comment, do not process
+            continue
+        lol = line.split(';')
+        if debug:
+            print(lol[0] + ' ' + lol[1])
+        hosts.append((lol[0], lol[1]))
+
+    if debug:
+        print('Verification:')
+        for host in hosts:
+            print(host[0] + ' ' + host[1])
+
+def createConfigDir():
+    # Create directory to store the configs
+    global currDir
+    currDir = os.path.dirname(os.path.abspath(__file__))  # obtain path of directory where script is being run
+    if debug:
+        print(currDir)
+
+    # os.getcwd() # path of working directory
+    global newDir
+    newDir = currDir + '/Configs/'
+    if not os.path.exists(newDir):
+        print("Directory 'Configs' was created with success on path " + currDir)
+        os.makedirs(newDir)
+    else:
+        print("Directory 'Configs' already exists on directory " + currDir + "/.\nThe obtained configs will be stored on that folder")
+        # sys.exit()
+
+def getSystemName(brand):
+    if debug:
+        print("\tObtaining Name and  Model version: ")
+
+    name = ''
+    model = ''
+    brand = brand.lower()
+    if brand == "dell":
+        output = conn.send_command('show system')  # sending command
+
+        # parsing command information
+        for line in output.split('\n'):
+            if "Machine Type:" in line:
+                model = (line.split(':'))[1].strip()
+
+            elif "System Name:" in line:
+                name = (line.split(':'))[1].strip()
+                break
+
+    elif brand == 'hp':
+        output = conn.send_command('show system')  # sending command
+        # Getting hostname
+        for line in output.split('\n'):
+            if "System Name" in line:
+                name = (line.split(':'))[1].strip()
+                if debug:
+                    print(name)
+                break
+
+        output = conn.send_command('show tech buffers')  # sending command
+        # Getting model information
+        for line in output.split('\n'):
+            if "Name:" in line:
+                model = (line.split(':'))[1].strip()
+                if debug:
+                    print(model)
+                break
+    else:
+        print("Unrecognized system brand @ 'parseSystemOutput'.")
+    return name, model
+
+def parseSwitchDetails(device):
+
+    # Files ifstatusFile, versionFile, systemIDFile
+    # Parsing interface status
+    print ("Parsing Interfaces Information\n")
+
+    '''
+        0 - start
+        1 - interfaces
+        2 - portchannels
+    '''
+    counter = 0
+    vlanNextLine = False
+    for line in ifstatusFile.splitlines():
+
+        # In case vlans exceed more than one line
+        if vlanNextLine == True:
+            ifaceVlans+=line.strip()
+            if line.endswith(','):
+                continue
+            else:
+                vlanNextLine = False
+                iface.vlans = ifaceVlans
+                device.addInterface(iface)      #add interface
+                print ("Interface "+ iface.name + " added to "+ device.name +"successfully!")
+                continue
+
+        if counter == 1:    #read interfaces
+            # Read Interface Name and instantiate interface
+            ifName = line[0:9].strip()
+            iface = Interface.Interface(ifName)
+
+            # Read Interface Status
+            ifStatus = line[46:51].strip().lower()
+            if ifStatus == "up":
+                iface.status = 1
+            elif ifStatus == "down":
+                iface.status = 1
+            else:
+                print ("Misread interface status information. Result: "+ifStatus)
+                iface.status = 0
+
+            print ("IF Name: "+ifName+"\n")
+
+            #Read Switchport Mode
+            ifMode = line[59:62].strip().upper()[0]
+            if (ifMode != 'A') & (ifMode != 'G') & (ifMode != 'T'):
+                print ("Misread switchport mode information. Result: "+ifMode)
+            else:
+                iface.mode = ifMode
+
+            print("IF Mode: "+ iface.mode+"\n")
+            #Read Vlans
+            ifaceVlans = line[64:].strip()
+            if ifaceVlans.endswith(','):
+                vlanNextLine = True
+                continue
+            else:
+                vlanNextLine = False
+                iface.vlans = ifaceVlans
+                device.addInterface(iface)
+                print("Interface " + iface.name + " added to " + device.name + "successfully!")
+
+        elif counter == 2:  #read port channels
+            print ("Port Channel not yet programmed!")
+            continue
+        else:
+            if line.startswith('------'):
+                counter += 1
+            continue
+
+        print("\n--------------------------------------------------------------------------------------")
+        print ("Printing "+device.getName()+" information")
+        print (device.toString())
+        print("\n--------------------------------------------------------------------------------------")
+
+    # Parsing version
+    print("Parsing Version Information\n")
+
+    readFirm = False
+    for line in versionFile.splitlines():
+        if readFirm == True:
+            device.setFirmVersion(line[29:43].strip())
+            readFirm = False
+        elif "Serial Number" in line:
+            device.setSerial(line.split('.')[-1].strip())
+        elif "MAC Address" in line:
+            device.setMac(line[-14])
+        elif "----":
+            readFirm = True
+
+    # Parsing system id
+    print ("Parsing System id information, namely Service Tag")
+
+    for line in systemIDFile.splitlines():
+        if "Service Tag:" in line:
+            device.setServiceTag(line.split("Service Tag:")[1].strip())
+            break
+
+    # Parsing show vlan file (vlans)
+    for line in vlanFile.splitlines():
+        #if no information on that line, move on
+        if line[0] == ' ':
+            continue
+
+        #Obtain Vlan info
+        vlanID = line[0:4]
+        vlanName = line[6:26]
+
+        vlan = Vlan.Vlan(vlanID)        #instantiate vlan object
+        vlan.setName(vlanName)          #set vlan name
+        device.addVlan(vlan)            #add vlan to device
+
+    # Parsing Show run config (interface description)
+    descDepth = False
+    for line in runConfigFile.splitlines():
+
+        if descDepth:
+            #no description, move on
+            if "exit" in line:
+                descDepth = False
+                continue
+            elif "description" in line:
+                ifaceObj = device.ifaces.getIface(ifaceID)
+                ifaceObj.setIfaceDescription(line.split("description").strip())
+                if debug:
+                    print ("Interface "+ifaceID+" was found!")
+                descDepth = False
+        elif (("Interface " in line) & (not descDepth)):
+            # Verify if interface is on device list
+            ifaceID = line.split("Interface")[1].strip()
+            if device.ifaceOnList(ifaceID):
+                descDepth = True    #Read description
+
+def obtainSwitchDetails(conn, device):
+    global ifstatusFile, versionFile, systemIDFile, vlanFile
+
+    if debug:
+        print ("Obtaining Switch Details")
+
+    #conn.disable_paging()
+    conn.send_command(' terminal length 0')
+    ifstatusFile = conn.send_command(' show interface status')
+    versionFile = conn.send_command(' show version')
+    systemIDFile = conn.send_command(' show system id')
+    vlanFile = conn.send_command(' show vlan')
+
+    if debug & 0:
+        print("-----------------------------------------------------------------------------------------")
+        print ("Printing 'show interface status'\n")
+        print (ifstatusFile)
+        print("-----------------------------------------------------------------------------------------")
+        print("Printing 'show version'")
+        print(versionFile)
+        print("-----------------------------------------------------------------------------------------")
+        print("Printing 'system id'")
+        print(systemIDFile)
+        print("-----------------------------------------------------------------------------------------")
+        print("Printing 'show vlan'")
+        print(vlanFile)
+
+    if debug:
+        print ("@obtainSwitchDetails -> Switch information retrieved with success!\n")
+
+
+def closeConnection(conn):
+    # Clean and close connection
+    conn.cleanup()
+    conn.disconnect()
+
+    print("\tConnection to " + host[0] + " successfully closed!\n")
+
+def obtainConfigs(conn, name, ip):
+    global date, tftpIP, runConfigFile
+    print("\tObtaining Startup-config...")
+    if debug:
+        print("\t\tTFTP: " + str(useTFTP) + " TFTP Server: " + str(tftpIP))
+
+    #If no TFTP then just read and store running config
+    if not useTFTP:
+        conn.disable_paging()
+        output = conn.send_command(' show run')  # obtain running config
+        filename = newDir + name + '_' + ip + '_' + date + '.cfg'  # parse filename
+        configFile = open(filename, "w")  # create file
+
+        runConfigFile = output      #save run config to file
+
+        if debug:
+            print("\tWriting running config...")
+
+        configFile.write(output)
+        configFile.close()
+    else:
+        if debug:
+            print("\tUsing TFTP Server")
+        # print("\tVerifying TFTP Connectivity")
+        # command = ' ping '+tftpIP
+        # output = conn.send_command(command)
+        filename = name + '_' + ip + '_' + date + '.cfg'  # parse filename
+
+        if len(filename) > 32:  # purge string if bigger than 32 charaters
+            filename = name + '_' + date + '.cfg'
+        output = conn.send_command(' copy startup-config tftp://' + tftpIP + '/' + filename)
+        # if (debug):
+        # print (output)
+        output = conn.send_command('y')
+        if (debug):
+            print(output)
+
+        print('\tStartup configuration successfully transferred to TFTP Server ' + str(
+            tftpIP) + ' with name \'' + filename + '\' !')
+
+def initDeviceProperties(host):
+    global dellIdx
+    global hpIdx
+    timeoutException = False
+    counter = 0
+    # print ('DellIdx= '+str(dellIdx)+' HpIdx= '+str(hpIdx))dell_force10
+    while (timeoutException == True & counter < 3):
+        try:
+            if counter >= 1:
+                print("Retrying connectivity to host: " + host[0])
+
+            if host[1].lower() == 'dell':
+                # dell.append({'device_type': 'cisco_ios', 'ip': host[0],
+                #	'username': user, 'password': pwd, 'secret':pwd, 'ssh_strict':False})
+                dell.append({'device_type': 'dell_force10', 'ip': host[0],
+                             'username': user, 'password': pwd, 'secret': pwd, 'ssh_strict': False})
+                conn = ConnectHandler(**dell[dellIdx])
+                dellIdx += 1
+                return conn
+
+            elif host[1].lower() == 'hp':
+                hp.append({'device_type': 'hp_procurve', 'ip': host[0],
+                           'username': user, 'password': pwd, 'secret': pwd, 'ssh_strict': False})
+                conn = ConnectHandler(**hp[hpIdx])
+                hpIdx += 1
+                return conn
+
+            else:
+                print("Unrecognized equipment brand @ 'initDeviceProperties'!")
+                return None
+        except Exception as exception:
+            # print ("Unexpected exception : "+str(sys.exc_info()[0]))
+            if debug:
+                print(exception.__class__.__name__)
+
+            if str(exception).lower() == 'netmikoauthenticationexception':
+                print("Authentication error. Please check if your credentials are valid.")
+                sys.exit()
+            else:
+                timeoutException = True
+                counter += 1
+
+# Init global variables
+initGlobalVariables()
+
+# Read arguments
+parseArgs()
+
+# Create directory where the configs will be stored, if tftp is not to be used
+if not useTFTP:
+    createConfigDir()
+
+# main loop
+nDevices = 0
+before = time.time()
+
+for host in hosts:
+    nDevices += 1
+    print('-> Processing host %d %s (%s)...' % (nDevices, host[0], host[1].upper()))
+
+    # Initialize equipment properties and establish connection
+    conn = initDeviceProperties(host)
+    if conn == None:
+        print("Moving to next node.")
+        continue
+
+    if debug:
+        print('enable')
+    conn.enable()  # enable switch
+
+    # Obtain model and name
+    (name, model) = getSystemName(host[1])  # parse command information
+
+    print("\tHostname: %s IP: %s Model: %s" % (name, host[0], model))
+
+    # Instantiate device
+    device = Device.Device(name, host[0])
+    device.setModel(model)                  #set model
+    devices.append(device)                  #append device to array
+
+    # Obtain and store running config
+    obtainConfigs(conn, name, host[0])
+
+    #Obtain and parse other information (IFStatus, version, system id)
+    if retInfo:
+        obtainSwitchDetails(conn, device)
+
+    #Close SSH connection
+    closeConnection(conn)
+
+    #Parse and push data to data structure
+    if retInfo:
+        parseSwitchDetails(device)
+
+
+after = time.time()
+duration = (after - before)
+
+print("Equipments processed: %d [Dell: %d HP: %d] in %.1f secs (~%.1f secs/device). \n" % (
+len(hosts), (dellIdx - 1), (hpIdx - 1), duration, duration / nDevices))
+
