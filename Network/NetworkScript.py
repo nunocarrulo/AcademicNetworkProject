@@ -514,4 +514,5 @@ duration = (after - before)
 
 print("Equipments processed: %d [Dell: %d HP: %d] in %.1f secs (~%.1f secs/device). \n" % (
 len(hosts), (dellIdx - 1), (hpIdx - 1), duration, duration / nDevices))
+#CHANGED
 
