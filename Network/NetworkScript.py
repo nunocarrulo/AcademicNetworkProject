@@ -1,35 +1,35 @@
 #!/usr/bin/env python
 from __future__ import print_function
+
 from netmiko import ConnectHandler
-from DataStructures import Device,Interface,Vlan,ChannelGroup
-from os import path
+from DataStructures import *
 import argparse, os, sys, time, socket
 from termcolor import colored
-
 # import thread
+
+# Global structures and variables
+global user, pwd, hosts, dellIdx, hpIdx, dell, hp, myIP, tftpIP, useTFTP, date
+global runConfigFile, ifstatusFile, versionFile, systemIDFile, vlanFile
+global debug, retInfo
+global devices
 
 def initGlobalVariables():
 
     # Global structures and variables
-    global user, pwd, hosts, name, model, dellIdx, hpIdx, dell, hp, hosts, myIP, tftpIP, useTFTP, date
+    global user, pwd, hosts, dellIdx, hpIdx, dell, hp, myIP, tftpIP, useTFTP, date
     global runConfigFile, ifstatusFile, versionFile, systemIDFile, vlanFile
     global debug, retInfo
     global devices
-    devices = []
+    devices = hosts = []
     tftpIP = None
     useTFTP = False
-    hosts = []
-    dell = [{}]
-    hp = [{}]
+    hp = dell = [{}]
     user = 'nunoadmin'
     pwd = '12345lol'
-    #user = 'linkcomadmin'
-    #pwd = 'ascoin2004'
     hosts = [('192.168.0.13','dell')]
     #hosts=[('192.168.1.19', 'dell'), ('192.168.1.32', 'dell'), ('192.168.1.36', 'hp')]
     dellIdx = 1
     hpIdx = 1
-
     date = (time.strftime("%d%m%y"))    ## dd/mm/yyyy format
 
 # Obtain my IP address
@@ -158,6 +158,17 @@ def createConfigDir():
         print("Directory 'Configs' already exists on directory " + currDir + "/.\nThe obtained configs will be stored on that folder")
         # sys.exit()
 
+def parseMAC(mac):
+    newMAC = ''
+    mac = mac.replace('.', '')
+
+    for i in range(0, len(mac)):
+        if (i % 2 == 0) & (i != 0):
+            newMAC += ':' + mac[i]
+        else:
+            newMAC += mac[i]
+    return newMAC
+
 def getSystemName(brand):
     if debug:
         print (colored("\t@getSystemName -> Obtaining Name and  Model version...",'yellow'))
@@ -200,6 +211,9 @@ def getSystemName(brand):
     return name, model
 
 def parseInterfaceStatus(device):
+    counter = i = 0
+    vlanNextLine = False
+
     if debug:
         print (colored("@parseInterfaceStatusParsing Interfaces Information",'yellow'))
 
@@ -208,9 +222,6 @@ def parseInterfaceStatus(device):
         1 - interfaces
         2 - portchannels
     '''
-    counter = 0
-    i = 0
-    vlanNextLine = False
 
     for line in ifstatusFile.splitlines():
         i+=1
@@ -232,7 +243,7 @@ def parseInterfaceStatus(device):
             # Read Interface Name and instantiate interface
             if (len(line) == 0):
                 counter+=1
-                print (colored("Counter incremented, no more physical interfaces",'red'))
+                print (colored("No more physical interfaces! Moving to port channels.",'cyan'))
                 continue
 
             ifName = line[0:9].strip()
@@ -270,7 +281,7 @@ def parseInterfaceStatus(device):
                 device.addInterface(iface)      #adding interface to device
 
         elif counter == 2:  #read port channels
-            print (colored("Port Channels feature not yet programmed!",'red'))
+            print (colored("Port Channels feature not yet programmed!",'cyan'))
             break
         else:
             if line.startswith('------'):
@@ -279,56 +290,68 @@ def parseInterfaceStatus(device):
 
     if debug:
         print (colored("Printing " + device.getName() + " information to 'Check' file. Total: "+str(i)+" interfaces.",'yellow'))
-    #print (colored(device.toString()),'cyan')  # print all device details
-
-    # Save to file 'check' all device details
-    check = open("check", "w")  # create file
-    check.write(device.toString())
-    check.close()
+        '''
+        print (colored(device.toString()),'cyan')  # print all device details
+        # Save to file 'check' all device details
+        check = open("check", "w")  # create file
+        check.write(device.toString())
+        check.close()
+        '''
 
 def parseSwitchDetails(device):
 
     # Files ifstatusFile, versionFile, systemIDFile
+
     # Parsing interface status
-    parseInterfaceStatus(device)
-    sys.exit()
+    #parseInterfaceStatus(device)
 
     # Parsing version
-    print (colored("Parsing Version Information\n",'yellow'))
+    print (colored("\nParsing 'Version' Information (Firmware Version, Serial, MAC)",'yellow'))
 
     readFirm = False
     for line in versionFile.splitlines():
         if readFirm == True:
             device.setFirmVersion(line[29:43].strip())
             readFirm = False
-        elif "Serial Number" in line:
+        elif "Serial" in line:
             device.setSerial(line.split('.')[-1].strip())
-        elif "MAC Address" in line:
-            device.setMac(line[-14])
-        elif "----":
+        elif "MAC" in line:
+            device.setMac(parseMAC(line[-14:]))
+        elif "----" in line:
             readFirm = True
 
     # Parsing system id
-    print (colored("Parsing System id information, namely Service Tag",'yellow'))
+    print (colored("\nParsing 'System id' information (Service Tag)",'yellow'))
 
     for line in systemIDFile.splitlines():
         if "Service Tag:" in line:
             device.setServiceTag(line.split("Service Tag:")[1].strip())
             break
 
+    if debug:
+        print (colored("Serial: "+device.getSerial()+" ST: "+device.getServiceTag()+" Firmware Version: "+device.getFirmVersion()+" MAC: "+device.getMac(),'cyan'))
+
     # Parsing show vlan file (vlans)
+    readVlan = False
     for line in vlanFile.splitlines():
         if line[0] == ' ':          #if no information on that line, move on
             continue
+        elif '----' in line:
+            readVlan = True
+            continue
+        elif readVlan:
+            #Obtain Vlan info
+            vlanID = line[0:4]
+            vlanName = line[6:26]
 
-        #Obtain Vlan info
-        vlanID = line[0:4]
-        vlanName = line[6:26]
+            vlan = Vlan.Vlan(vlanID)        #instantiate vlan object
+            vlan.setName(vlanName)          #set vlan name
+            device.addVlan(vlan)            #add vlan to device
 
-        vlan = Vlan.Vlan(vlanID)        #instantiate vlan object
-        vlan.setName(vlanName)          #set vlan name
-        device.addVlan(vlan)            #add vlan to device
-
+    print ("Vlan ID\t\tName\n")
+    for vlan in device.getVlans():
+        print (vlan.toString())
+    sys.exit()
     # Parsing Show run config (interface description)
     print(colored("Parsing running config, namely IF description", 'yellow'))
     descDepth = False
@@ -438,7 +461,7 @@ def initDeviceProperties(host):
     while (timeoutException == True & counter < 3):
         try:
             if counter >= 1:
-                print("Retrying connectivity to host: " + host[0])
+                print("Retrying connectivity to host %s. Attempt %d" %(counter, host[0]))
 
             if host[1].lower() == 'dell':
                 # dell.append({'device_type': 'cisco_ios', 'ip': host[0],
@@ -457,17 +480,19 @@ def initDeviceProperties(host):
                 return conn
 
             else:
-                print("Unrecognized equipment brand @ 'initDeviceProperties'!")
+                print( colored("@initDeviceProperties -> Unrecognized equipment brand !",'red'))
                 return None
         except Exception as exception:
             # print ("Unexpected exception : "+str(sys.exc_info()[0]))
             if debug:
+                print(colored('@initDeviceProperties -> Check your connectivity status please!','red'))
                 print(exception.__class__.__name__)
 
             if str(exception).lower() == 'netmikoauthenticationexception':
-                print("Authentication error. Please check if your credentials are valid.")
+                print (colored("Authentication error. Please check if your credentials are valid.",'red'))
                 sys.exit()
             else:
+                print ("Timeout Exception")
                 timeoutException = True
                 counter += 1
 
@@ -503,8 +528,9 @@ for host in hosts:
 
     print("\tHostname: %s IP: %s Model: %s" % (name, host[0], model))
 
-    # Instantiate device
+    # Instantiate device and set some details
     device = Device.Device(name, host[0])
+    device.setDebug(False)                  #setting debug mode in Device.py
     device.setModel(model)                  #set model
     devices.append(device)                  #append device to array
 

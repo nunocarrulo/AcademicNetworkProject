@@ -1,6 +1,5 @@
 from termcolor import colored
 
-
 class Device:
 
     def __init__(self, name, ipaddress):
@@ -13,6 +12,7 @@ class Device:
         self.firmVersion = ''
         self.serial = ''
         self.model = ''
+        self.debug = False
 
     '''
         Setters
@@ -24,6 +24,7 @@ class Device:
         self.serviceTag = serviceTag
         self.serial = serial
         self.mac = mac
+
 
     def setInterfaces(self, ifs):
         self.ifaces = ifs
@@ -46,15 +47,34 @@ class Device:
     def setMac(self, mac):
         self.mac = mac
 
+    def setDebug(self, debug):
+        self.debug = debug
+
     '''
         Getters
     '''
 
+    def getVlans(self):
+        return self.vlans
+
+    def getModel(self):
+        return self.model
+
+    def getFirmVersion(self):
+        return self.firmVersion
+
+    def getServiceTag(self):
+        return self.serviceTag
+
+    def getSerial(self):
+        return self.serial
+
+    def getMac(self):
+        return self.mac
+
     def getName(self):
         return self.name
 
-    def getVlans(self):
-        return self.vlans
 
     '''
         Operations
@@ -69,37 +89,43 @@ class Device:
         for iface in self.ifaces:
             if iface.id == ifaceID:
                 return iface
-        if debug:
+        if self.debug:
             print ("@device.getIface -> Interface " + iface.id + " was not found!")
 
     def addVlan(self, vlan):
         self.vlans.append(vlan)
         # order vlan list again
-        print "Vlan " + vlan.id + "added with success !"
+        if self.debug:
+            print "Vlan " + vlan.id + "added with success !"
 
     def removeVlan(self, vlan):
         self.vlans.remove(vlan)
         # order vlan list again
-        print "Vlan " + vlan.id + "removed with success !"
+        if self.debug:
+            print "Vlan " + vlan.id + "removed with success !"
 
     def addPortChannel(self, channelGroup):
         self.channelGroups.append(channelGroup)
         # Order channel group for id
-        print colored("Channel Group " + channelGroup.id + "added with success !",'green')
+        if self.debug:
+            print colored("Channel Group " + channelGroup.id + "added with success !",'green')
 
 
     def addInterface(self, iface):
         self.ifaces.append(iface)
         # order interface list again
-        print colored("Interface " + iface.id + " added to "+ self.name +" with success !",'green')
+        if self.debug:
+            print colored("Interface " + iface.id + " added to "+ self.name +" with success !",'green')
 
     def removeInterface(self, iface):
         self.IFs.remove(iface)
-        print colored("Interface " + iface.name + "removed with success !",'green')
+        if self.debug:
+            print colored("Interface " + iface.name + "removed with success !",'green')
 
     def removePortChannel(self, channelGroup):
         self.channelGroups.remove(channelGroup)
-        print colored("Channel Group " + channelGroup.id + "removed with success !",'green')
+        if self.debug:
+            print colored("Channel Group " + channelGroup.id + "removed with success !",'green')
 
     def toString(self):
         output = ''
@@ -115,3 +141,4 @@ class Device:
         for iface in self.ifaces:
            output+= (iface.toString()+"\n")
         return output
+
