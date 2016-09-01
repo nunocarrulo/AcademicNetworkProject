@@ -1,10 +1,12 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 from __future__ import print_function
 
 from netmiko import ConnectHandler
 from DataStructures import *
+#from DataStructures import Device,Interface,Vlan,ChannelGroup
 import argparse, os, sys, time, socket
 from termcolor import colored
+import signal
 # import thread
 
 # Global structures and variables
@@ -253,13 +255,13 @@ def parseInterfaceStatus(device):
             ifStatus = line[46:51].strip().lower()
 
             if ifStatus == "up":
-                iface.status = 1
+                iface.setStatus(1)
             elif ifStatus == "down":
-                iface.status = 1
+                iface.setStatus(0)
             else:
                 print (colored("Misread interface status information. Result: "+ifStatus,'red'))
                 print(colored("Line:\n" + line), 'blue')
-                iface.status = 0        #consider the interface down
+                iface.setStatus(0)       #consider the interface down
 
             #Read and add Switchport Mode to device
             ifMode = line[59:62].strip().upper()
@@ -268,7 +270,7 @@ def parseInterfaceStatus(device):
                 print (colored("Misread switchport mode information. Result: "+ifMode,'red'))
                 print (colored("Line:\n"+line),'blue')
             else:
-                iface.mode = ifMode
+                iface.setMode(ifMode)
 
             # Read and add Vlans to device
             ifaceVlans = line[62:].strip()
@@ -277,7 +279,7 @@ def parseInterfaceStatus(device):
                 continue
             else:
                 vlanNextLine = False
-                iface.vlans = ifaceVlans
+                iface.setVlans(ifaceVlans)
                 device.addInterface(iface)      #adding interface to device
 
         elif counter == 2:  #read port channels
@@ -290,23 +292,18 @@ def parseInterfaceStatus(device):
 
     if debug:
         print (colored("Printing " + device.getName() + " information to 'Check' file. Total: "+str(i)+" interfaces.",'yellow'))
-        '''
-        print (colored(device.toString()),'cyan')  # print all device details
-        # Save to file 'check' all device details
-        check = open("check", "w")  # create file
-        check.write(device.toString())
-        check.close()
-        '''
+    '''
+    print (colored(device.toString()),'cyan')  # print all device details
+    # Save to file 'check' all device details
+    check = open("check", "w")  # create file
+    check.write(device.toString())
+    check.close()
+    sys.exit()
+    '''
 
-def parseSwitchDetails(device):
-
-    # Files ifstatusFile, versionFile, systemIDFile
-
-    # Parsing interface status
-    #parseInterfaceStatus(device)
-
+def parseSystemDetails(device):
     # Parsing version
-    print (colored("\nParsing 'Version' Information (Firmware Version, Serial, MAC)",'yellow'))
+    print(colored("\nParsing 'Version' Information (Firmware Version, Serial, MAC)", 'yellow'))
 
     readFirm = False
     for line in versionFile.splitlines():
@@ -321,7 +318,7 @@ def parseSwitchDetails(device):
             readFirm = True
 
     # Parsing system id
-    print (colored("\nParsing 'System id' information (Service Tag)",'yellow'))
+    print(colored("\nParsing 'System id' information (Service Tag)", 'yellow'))
 
     for line in systemIDFile.splitlines():
         if "Service Tag:" in line:
@@ -329,65 +326,101 @@ def parseSwitchDetails(device):
             break
 
     if debug:
-        print (colored("Serial: "+device.getSerial()+" ST: "+device.getServiceTag()+" Firmware Version: "+device.getFirmVersion()+" MAC: "+device.getMac(),'cyan'))
+        print(colored(
+            "Serial: " + device.getSerial() + " ST: " + device.getServiceTag() + " Firmware Version: " + device.getFirmVersion() + " MAC: " + device.getMac(),
+            'cyan'))
 
     # Parsing show vlan file (vlans)
     readVlan = False
     for line in vlanFile.splitlines():
-        if line[0] == ' ':          #if no information on that line, move on
+        if line[0] == ' ':  # if no information on that line, move on
             continue
         elif '----' in line:
             readVlan = True
             continue
         elif readVlan:
-            #Obtain Vlan info
+            # Obtain Vlan info
             vlanID = line[0:4]
             vlanName = line[6:26]
 
-            vlan = Vlan.Vlan(vlanID)        #instantiate vlan object
-            vlan.setName(vlanName)          #set vlan name
-            device.addVlan(vlan)            #add vlan to device
+            vlan = Vlan.Vlan(vlanID)  # instantiate vlan object
+            vlan.setName(vlanName)  # set vlan name
+            device.addVlan(vlan)  # add vlan to device
+    '''
+    if debug:
+        print(colored("Vlan ID\t\tName", 'cyan'))
+        for vlan in device.getVlans():
+            print(colored(vlan.toString(), 'cyan'))
+    '''
 
-    print ("Vlan ID\t\tName\n")
-    for vlan in device.getVlans():
-        print (vlan.toString())
-    sys.exit()
+def parseSwitchDetails(device):
+
+    # Files ifstatusFile, versionFile, systemIDFile
+
+    # Parsing interface status
+    parseInterfaceStatus(device)
+
+    # Parsing version and ST
+    parseSystemDetails(device)
+
     # Parsing Show run config (interface description)
-    print(colored("Parsing running config, namely IF description", 'yellow'))
+    #print(colored("Parsing running config, namely IF description", 'yellow'))
     descDepth = False
+    i = 0
+    print ("Run Config File: "+runConfigFile)
     for line in runConfigFile.splitlines():
-
+        print (str(i))
         if descDepth:
             #no description, move on
             if "exit" in line:
                 descDepth = False
                 continue
             elif "description" in line:
+                print("Found description")
                 ifaceObj = device.ifaces.getIface(ifaceID)
-                ifaceObj.setIfaceDescription(line.split("description").strip())
+                print ("ALALALA: "+line.split("description")[1].strip())
+                ifaceObj.setIfaceDescription(line.split("description")[1].strip())
                 if debug:
                     print (colored("Interface "+ifaceID+" was found!",'green'))
                 descDepth = False
         elif (("Interface " in line) & (not descDepth)):
+            print ("Found Interface")
             # Verify if interface is on device list
             ifaceID = line.split("Interface")[1].strip()
             if device.ifaceOnList(ifaceID):
                 descDepth = True    #Read description
+    sys.exit()
+    print ("\tID\tDescription\t\tMode\tVlans")
+    for x in device.getIfaces():
+       print (x.toString())
 
 def obtainSwitchDetails(conn, device):
-    global ifstatusFile, versionFile, systemIDFile, vlanFile
+    global runConfigFile, ifstatusFile, versionFile, systemIDFile, vlanFile
 
     if debug:
         print (colored("@obtainSwitchDetails -> Obtaining Switch Details",'yellow'))
 
     #conn.disable_paging()
     conn.send_command(' terminal length 0')
-    ifstatusFile = conn.send_command(' show interface status')
-    versionFile = conn.send_command(' show version')
-    systemIDFile = conn.send_command(' show system id')
-    vlanFile = conn.send_command(' show vlan')
+    time.sleep(1)
+    runConfigFile = conn.send_command('    show running-config ')
+    time.sleep(1)
+    ifstatusFile = conn.send_command(' show interface status ')
 
-    if debug & 0:
+    versionFile = conn.send_command(' show version ')
+
+    systemIDFile = conn.send_command(' show system id ')
+
+    vlanFile = conn.send_command(' show vlan ')
+
+    configFile = open('sh run', "w")  # create file
+    configFile.write(runConfigFile)
+    configFile.close()
+
+    if debug:
+        print("-----------------------------------------------------------------------------------------")
+        print("Printing 'show running-config'\n")
+        print(runConfigFile)
         print("-----------------------------------------------------------------------------------------")
         print ("Printing 'show interface status'\n")
         print (ifstatusFile)
@@ -403,6 +436,7 @@ def obtainSwitchDetails(conn, device):
 
     if debug:
         print (colored("@obtainSwitchDetails -> Switch information retrieved with success!",'green'))
+    sys.exit()
 
 def closeConnection(conn):
     # Clean and close connection
@@ -420,18 +454,19 @@ def obtainConfigs(conn, name, ip):
 
     #If no TFTP then just read and store running config
     if not useTFTP:
+        '''
         conn.disable_paging()
-        output = conn.send_command(' show run')  # obtain running config
+        runConfigFile = conn.send_command(' show run')  # obtain running config
         filename = newDir + name + '_' + ip + '_' + date + '.cfg'  # parse filename
         configFile = open(filename, "w")  # create file
-
-        runConfigFile = output      #save run config to file
 
         if debug:
             print (colored("\tWriting running config...",'yellow'))
 
-        configFile.write(output)
+        configFile.write(runConfigFile)
         configFile.close()
+        sys.exit()
+        '''
     else:
         if debug:
             print("\tUsing TFTP Server")

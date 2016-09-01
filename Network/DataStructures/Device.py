@@ -75,6 +75,9 @@ class Device:
     def getName(self):
         return self.name
 
+    def getIfaces(self):
+        return self.ifaces
+
 
     '''
         Operations
@@ -96,36 +99,36 @@ class Device:
         self.vlans.append(vlan)
         # order vlan list again
         if self.debug:
-            print "Vlan " + vlan.id + "added with success !"
+            print ("Vlan " + vlan.id + "added with success !")
 
     def removeVlan(self, vlan):
         self.vlans.remove(vlan)
         # order vlan list again
         if self.debug:
-            print "Vlan " + vlan.id + "removed with success !"
+            print ("Vlan " + vlan.id + "removed with success !")
 
     def addPortChannel(self, channelGroup):
         self.channelGroups.append(channelGroup)
         # Order channel group for id
         if self.debug:
-            print colored("Channel Group " + channelGroup.id + "added with success !",'green')
+            print (colored("Channel Group " + channelGroup.id + "added with success !",'green'))
 
 
     def addInterface(self, iface):
         self.ifaces.append(iface)
         # order interface list again
         if self.debug:
-            print colored("Interface " + iface.id + " added to "+ self.name +" with success !",'green')
+            print (colored("Interface " + str(iface.id) + " added to "+ self.name +" with success !",'green'))
 
     def removeInterface(self, iface):
         self.IFs.remove(iface)
         if self.debug:
-            print colored("Interface " + iface.name + "removed with success !",'green')
+            print (colored("Interface " + iface.name + "removed with success !",'green'))
 
     def removePortChannel(self, channelGroup):
         self.channelGroups.remove(channelGroup)
         if self.debug:
-            print colored("Channel Group " + channelGroup.id + "removed with success !",'green')
+            print (colored("Channel Group " + channelGroup.id + "removed with success !",'green'))
 
     def toString(self):
         output = ''
@@ -136,8 +139,7 @@ class Device:
         for vlan in self.vlans:
             output+= ("\t" + vlan.toString())
         output+= ("\nID\t\tMode\t\tVlans\t\n-----------------------------------------------------------------------------------------------------\n")
-        #print colored("ID: "+self.ifaces[0].id+" Mode: "+self.ifaces[0].mode+" Vlans: "+self.ifaces[0].vlans+"asdasd",'cyan')
-        #print colored("Ifaces length "+str(len(self.ifaces)),'cyan')
+
         for iface in self.ifaces:
            output+= (iface.toString()+"\n")
         return output

@@ -1,8 +1,24 @@
-#!/usr/bin/env python
-import sys
-from DataStructures import Device,Interface,Vlan,ChannelGroup
+#!/usr/bin/env python3
 
-#a = "asdadasd.......123456"
+import sys
+from DataStructures import Device,Interface
+a = "description asdadasd.......123456"
+print (a.split("description")[1].strip())
+sys.exit()
+iface = Interface.Interface(10)
+iface2 = Interface.Interface(20)
+dev = Device.Device('lol.aitec.pt','192.168.1.1')
+
+
+
+dev.addInterface(iface)
+dev.addInterface(iface2)
+
+print len(dev.getIfaces())
+for lol in dev.getIfaces():
+    print (lol.toString())
+
+
 a = "Service Tag: asdada12e1d12"
 mac = "F8B1.5659.7A51"
 newMAC = ''

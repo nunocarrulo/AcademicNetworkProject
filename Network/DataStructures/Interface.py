@@ -17,6 +17,15 @@ class Interface:
         #self.uVlan = uVlan
         #self.tVlans = tVlans
 
+    def setStatus(self, status):
+        self.status = status
+
+    def setVlans(self,vlans):
+        self.vlans = vlans
+
+    def setMode(self,mode):
+        self.mode = mode
+
     def setIfaceDescription(self, ifaceDesc):
         self.description = ifaceDesc
 
@@ -36,9 +45,20 @@ class Interface:
     '''
         Create getters if necessary
     '''
+    def getID(self):
+        return self.id
+
+    def getStatus(self):
+        return self.status
+
+    def getVlans(self):
+        return self.vlans
+
+    def getMode(self, mode):
+        return self.mode
 
     def getIfaceDesc(self):
         return self.description
 
     def toString(self):
-        return (self.id + "\t\t"+self.mode+"\t"+self.vlans)
+        return (self.id + "\tDescription"+self.description+"\t"+self.mode+"\t"+self.vlans)
