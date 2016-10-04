@@ -2,6 +2,31 @@
 
 import sys
 from DataStructures import Device,Interface
+
+oldFilename = "IPOACL-toObjs_Old.txt"
+with open(oldFilename,'r') as oldFile:
+    oldData = oldFile.readlines()
+
+newFilename = "IPOACL-toObjs_Parsed.txt"
+with open(newFilename,'r') as newFile:
+    newData = newFile.readlines()
+
+counter = 0
+toWrite =""
+for line in newData:
+    if line not in oldData:
+        toWrite+=line.strip()+"\n"
+        counter+=1
+
+comparisonFilename = "missingAddrObjs"
+dstFile = open(comparisonFilename,'w')
+dstFile.write(toWrite)
+dstFile.close()
+
+print ("Found %d new address objects!" %(counter))
+
+
+'''
 a = "description asdadasd.......123456"
 print (a.split("description")[1].strip())
 sys.exit()
@@ -38,7 +63,7 @@ print newMAC
 #b = a.split('.')
 
 #print b[-1]
-
+'''
 '''
 devices = []
 ifaces = []

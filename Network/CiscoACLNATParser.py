@@ -1,14 +1,31 @@
 #!/usr/bin/env python3
 from __future__ import print_function
 import os, sys
+from termcolor import colored, cprint
+
 
 def findNameByIP(ip):
     global dnsData
+    if debug:
+        print ("DNS Data: %s" %(dnsData))
+
     for line in dnsData:
-        if ip in line.split(" ")[0].strip():
-            name = line.split(" ")[1].strip()
-            print ("Found IP %s with name %s!" %(ip,name))
-            return name
+        line = line.strip()
+
+        if not line:    #if line empty
+            continue
+
+        #Parse information
+        line = line.split("\t")
+        listIP = line[0].strip()
+        listName = line[1].strip()
+
+        if debug:
+            print("@findNameByIP : IP-> %s IP on List %s Name %s" % (ip, listIP, listName))
+
+        if ip in listIP:
+            print ("Found IP %s with name %s!" %(ip,listName))
+            return listName
     print("IP %s was NOT found!" % (ip))
 
 def dstIPProcess(srcIP, parsedLine, srcOpt, dstOpt):
@@ -17,7 +34,7 @@ def dstIPProcess(srcIP, parsedLine, srcOpt, dstOpt):
     # SRC ANY
     if srcOpt == "any":
         if dstOpt == "host":
-            dstIP = parsedLine[2].lower()
+            dstIP = parsedLine[3].lower().strip()
         elif dstOpt == "network":
             dstIP = parsedLine[2].strip()
             dstIPMask = parsedLine[3].strip()
@@ -27,7 +44,7 @@ def dstIPProcess(srcIP, parsedLine, srcOpt, dstOpt):
     # SRC HOST
     elif srcOpt == "host":
         if dstOpt == "host":
-            dstIP = parsedLine[4].lower()
+            dstIP = parsedLine[4].lower().strip()
         elif dstOpt == "network":
             dstIP = parsedLine[3].strip()
             dstIPMask = parsedLine[4].strip()
@@ -37,7 +54,7 @@ def dstIPProcess(srcIP, parsedLine, srcOpt, dstOpt):
     #SRC NETWORK
     else:
         if dstOpt == "host":
-            dstIP = parsedLine[4].lower()
+            dstIP = parsedLine[4].lower().strip()
         elif dstOpt == "network":
             dstIP = parsedLine[3].strip()
             dstIPMask = parsedLine[4].strip()
@@ -52,40 +69,58 @@ def dstIPProcess(srcIP, parsedLine, srcOpt, dstOpt):
         name = findNameByIP(dstIP)
         if (name == None):  # if a name was not found, use the IP on address-object name
             name = dstIP
-        if dstOpt == "host":
-            toWrite += "address-object ipv4 %s host %s zone WAN" % (name, dstIP)
-        elif dstOpt == "network":
-            toWrite += "address-object ipv4 %s network %s %s zone WAN" % (name, dstIP, dstIPMask)
+        name = "WAN_" + name  # adding zone to the name
 
+        if dstOpt == "host":
+            toWrite += "address-object ipv4 %s host %s zone WAN\n" % (name, dstIP)
+        elif dstOpt == "network":
+            toWrite += "address-object ipv4 %s network %s %s zone WAN\n" % (name, dstIP, dstIPMask)
+        else:
+            print("dstIP is ANY")
         numObjs += 1
+
+    else:
+        print("IP %s already added!" %(dstIP))
+
 
 #Variable initialization
 global dnsData, toWrite, numObjs
-sonicwall = True
-option = 1
+IPOC_DNS = False
+option = 3          #  0-> ACL 1-> NAT 2 -> Siglicusr 3->IPs to addr-obj CFS
 numObjs = numLines = debug = 0
 parsedLines = ""
 toWrite = ""
 
 
-#Reading DNS File to string for Sonicwall
-print("Reading DNS file to string.")
-dnsFilename = "IPO_MyDNS"
-with open(dnsFilename,'r') as dnsFile:
-    dnsData = dnsFile.read()
+if IPOC_DNS:
+    #Reading DNS File to string for Sonicwall
+    print("Reading DNS file to string.")
+    dnsFilename = "Docs/IPO_MyDNS.txt"
+    #dnsFile = open(dnsFilename,'r')
+    with open(dnsFilename,'r') as dnsFile:
+        dnsData = dnsFile.readlines()
+    addedObjects = []
 
-srcFilename = 'IPO-AddrObjs.txt'
-parsedFilename = "IPO-AddrObjs_Parsed.txt"
+
+if option == 1:
+    srcFilename = 'IPOACL-toObjs.txt'
+    parsedFilename = "IPOACL-toObjs_Parsed.txt"
+elif option == 3:
+    srcFilename = 'Docs/siglicusr'
+    parsedFilename = 'Docs/siglicusr_Parsed.txt'
+elif option == 4:
+    srcFilename = 'Docs/IPOCParseAllowedIPs/squi_ppl_mal_comportado'
+    parsedFilename = 'Docs/IPOCParseAllowedIPs/squi_ppl_mal_comportado_Parsed.txt'
+
 srcFile = open(srcFilename, 'r')
 
 
-addedObjects = []
-if sonicwall:
+if IPOC_DNS:
     # Read each line and parse it to excel
     for line in srcFile.readlines():
         # ACL
         if option == 0:
-            parsedLine = ((line.split("extended", 1)[1].strip()).split(" "))
+            parsedLine = ((line.split("permit", 1)[1].strip()).split(" "))
             protocol = parsedLine[0]
             srcIP = parsedLine[1].strip()
 
@@ -94,40 +129,22 @@ if sonicwall:
 
                 #IF DST = HOST
                 if (parsedLine[2].lower() == "host"):
+                    print ("SRC = ANY & DST = HOST")
                     dstIPProcess(srcIP, parsedLine, "any","host")
-                    '''
-                    dstIP = parsedLine[3].strip()
 
-                    #Check if destination IP exists
-                    if dstIP not in addedObjects:
-                        addedObjects.append(dstIP)
-                    else:   #proceed to next object
-                        continue
-
-                    name = findNameByIP(dstIP)
-                    if (name == None): #if a name was not found, use the IP on address-object name
-                        name = dstIP
-
-                    dstIP = parsedLine[2].strip()
-                    toWrite += "address-object ipv4 %s host %s zone WAN\n" % (name,dstIP)
-                    numObjs += 1
-                    '''
                 #IF DST = NETWORK
                 elif (parsedLine[2].lower() != "any"):
+                    print("SRC = ANY & DST = NETWORK")
                     dstIPProcess(srcIP, parsedLine, "any", "network")
-                    '''
-                    print("Source IP is \"Any\" - Destination IP is a network")
-                    dstIP = parsedLine[2].strip()
-                    dstIPMask = parsedLine[3].strip()
-                    toWrite += "address-object ipv4 %s network %s %s zone WAN\n" % (name,dstIP, dstIPMask)
-                    numObjs+=1
-                    '''
+
                 #IF DST = ANY
                 else:
+                    print("SRC = ANY & DST = ANY")
                     print("Source IP is \"Any\" - Destination IP is ANY. Moving to next line")
 
             #If SRC = HOST
             elif srcIP.lower() == "host":
+                print("SRC = HOST & DST = HOST")
                 srcIP = parsedLine[2].strip()
 
                 if srcIP not in addedObjects:
@@ -136,48 +153,24 @@ if sonicwall:
                     name = findNameByIP(srcIP)
                     if (name == None):  # if a name was not found, use the IP on address-object name
                         name = srcIP
+                    name = "WAN_" + name  # adding zone to the name
 
-                    toWrite += "address-object ipv4 %s host %s zone LAN\n" % (name, srcIP)      #Writing object
+                    toWrite += "address-object ipv4 %s host %s zone WAN\n" % (name, srcIP)      #Writing object
                     numObjs += 1    #counting object
 
-                    #SRC = HOST & DST = HOST
-                    if parsedLine[3].lower() == "host":
-                        dstIPProcess(srcIP, parsedLine, "host","host")
-                        '''
-                        dstIP = parsedLine[4].lower()
-                        if dstIP not in addedObjects:
+                #SRC = HOST & DST = HOST
+                if parsedLine[3].lower() == "host":
+                    print("SRC = HOST & DST = HOST")
+                    dstIPProcess(srcIP, parsedLine, "host","host")
 
-                            # add the new object to the list
-                            addedObjects.append(dstIP)
+                #SRC = HOST & DST = NETWORK
+                elif parsedLine[3].lower() != "any":
+                    print("SRC = HOST & DST = NETWORK")
+                    dstIPProcess(srcIP, parsedLine, "host","network")
 
-                            #Finding Name
-                            name = findNameByIP(dstIP)
-                            if (name == None):  # if a name was not found, use the IP on address-object name
-                                name = dstIP
-
-                            toWrite += "address-object ipv4 %s host %s zone WAN" % (name, dstIP)
-                            numObjs += 1
-                            '''
-                    #SRC = HOST & DST = NETWORK
-                    elif parsedLine[3].lower() != "any":
-                        dstIPProcess(srcIP, parsedLine, "host","network")
-                        '''
-                        dstIP = parsedLine[3].strip()
-                        dstIPMask = parsedLine[4].strip()
-
-                        if dstIP not in addedObjects:
-                            # add the new object to the list
-                            addedObjects.append(dstIP)
-                            # Finding Name
-                            name = findNameByIP(dstIP)
-                            if (name == None):  # if a name was not found, use the IP on address-object name
-                                name = dstIP
-                            toWrite += "address-object ipv4 %s network %s %s zone WAN" % (name, dstIP, dstIPMask)
-                            numObjs += 1
-                        '''
-                    # SRC = HOST & DST = ANY
-                    else:
-                        print("Source IP is %s - Destination IP is ANY. Moving to next line" %(srcIP))
+                # SRC = HOST & DST = ANY
+                else:
+                    print("Source IP is %s - Destination IP is ANY. Moving to next line" %(srcIP))
 
             # SRC = NETWORK
             else:
@@ -190,54 +183,50 @@ if sonicwall:
                     name = findNameByIP(srcIP)
                     if (name == None):  # if a name was not found, use the IP on address-object name
                         name = srcIP
+                    name = "WAN_"+name  #adding zone to the name
 
-                    toWrite += "address-object ipv4 %s network %s zone LAN\n" % (name, srcIP, srcIPMask)  # Writing object
+                    toWrite += "address-object ipv4 %s network %s %s zone WAN\n" % (name, srcIP, srcIPMask)  # Writing object
                     numObjs += 1  # counting object
 
-                    #DST = HOST
-                    if parsedLine[3].lower() == "host":
-                        dstIPProcess(srcIP, parsedLine, "network","host")
-                        '''
-                        dstIP = parsedLine[4].lower()
-                        if dstIP not in addedObjects:
+                #DST = HOST
+                if parsedLine[3].lower() == "host":
+                    print("SRC = NETWORK & DST = HOST")
+                    dstIPProcess(srcIP, parsedLine, "network","host")
 
-                            # add the new object to the list
-                            addedObjects.append(dstIP)
+                #DST = NETWORK
+                elif parsedLine[3].lower() != "any":
+                    print("SRC = NETWORK & DST = NETWORK")
+                    dstIPProcess(srcIP, parsedLine, "network","network")
 
-                            # Finding Name
-                            name = findNameByIP(dstIP)
-                            if (name == None):  # if a name was not found, use the IP on address-object name
-                                name = dstIP
-
-                            toWrite += "address-object ipv4 %s host %s zone WAN" % (name, dstIP)
-                            numObjs += 1
-                        '''
-                    #DST = NETWORK
-                    elif parsedLine[3].lower() != "any":
-                        dstIPProcess(srcIP, parsedLine, "network","network")
-                        '''
-                        dstIP = parsedLine[3].strip()
-                        dstIPMask = parsedLine[4].strip()
-
-                        if dstIP not in addedObjects:
-                            # add the new object to the list
-                            addedObjects.append(dstIP)
-                            # Finding Name
-                            name = findNameByIP(dstIP)
-                            if (name == None):  # if a name was not found, use the IP on address-object name
-                                name = dstIP
-                            toWrite += "address-object ipv4 %s network %s %s zone WAN" % (name, dstIP, dstIPMask)
-                            numObjs += 1
-                        '''
-                    else:
-                        print("Source IP is %s - Destination IP is ANY. Moving to next line" % (srcIP))
+                else:
+                    print("SRC = NETWORK & DST = ANY")
+                    print("Source IP is %s - Destination IP is ANY. Moving to next line" % (srcIP))
 
             numLines += 1
+            print(numLines)
+
+            #cprint("ToWrite: \n%s" %(toWrite), 'green',attrs=['bold'])
+            #if numLines == 1:
+            #    sys.exit()
         # 1 to 1 NAT
         #elif option == 1:
+
 else:
+    #initialization for siglicusr
+    #namePrefix = "LAN_"
+    name = namePrefix = \
+    if option == 3:
+        basename = "LAN_SIGLI_"
+    elif option == 4:
+        basename = "LAN_"
+    #basename = "LAN_"
+    switch = False
     # Read each line and parse it to excel
     for line in srcFile.readlines():
+        line = line.strip()
+        if not line:  # if line empty
+            continue
+        numLines += 1
         # ACL
         if option == 0:
             parsedLines += (((line.split("extended",1)[1].strip()).replace(" ","\t")) + "\n")
@@ -257,9 +246,41 @@ else:
             parsedLines += srcIF+"\t"+dstIF+"\t"+realIP+"\t"+realIPMask+"\t"+mappedIP+"\n"
 
             numObjs += 1
+        #siglicusr parse
+        elif option == 2:
+            if line.startswith("#"):
+                basename = ""       #clear name if repeated #
+                namePrefix = line.split(("#"))[1].strip()
+                basename+= "LAN_SIGLI_%s_" %(namePrefix)
+                #switch = True
+            else:
+                IP = line.strip()                       #get full IP
+                reducedIP = line.split(".",2)[2]        #Parse IP to display last 2 octecs
+                name = (basename+reducedIP)
+                print ("@Line: %s Name: %s" %(numLines,name))
+                toWrite += "address-object ipv4 %s host %s zone LAN\n" % (name, IP)
+                numObjs+=1
+
+        # IPs to address objects parse
+        elif option == 3:
+        if line.startswith("#"):
+            basename = ""  # clear name if repeated #
+            namePrefix = line.split(("#"))[1].strip()
+            basename += "LAN_SIGLI_%s_" % (namePrefix)
+            # switch = True
+        else:
+            IP = line.strip()  # get full IP
+            reducedIP = line.split(".", 2)[2]  # Parse IP to display last 2 octecs
+            name = (basename + reducedIP)
+            print("@Line: %s Name: %s" % (numLines, name))
+            toWrite += "address-object ipv4 %s host %s zone LAN\n" % (name, IP)
+            numObjs += 1
+
+
 
 if debug:
     print ("Parsed Lines: "+parsedLines)
+print ("toWrite\n %s" %(toWrite))
 
 #Write output File
 dstFile = open(parsedFilename,'w')
@@ -268,7 +289,6 @@ dstFile.close()
 #parsedAclFile = open(parsedFilename, 'w')
 #parsedAclFile.write(parsedLines)
 #parsedACLFile.close()
-
 print ("File %s was successfully written!\nNumber of lines processed: %d\nNumber of objects added: %d" % (parsedFilename, numLines,numObjs))
 
 
