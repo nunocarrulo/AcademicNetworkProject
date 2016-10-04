@@ -82,12 +82,32 @@ def dstIPProcess(srcIP, parsedLine, srcOpt, dstOpt):
     else:
         print("IP %s already added!" %(dstIP))
 
+def commentIsIP(namePrefix):
+    # Check if comment is IP
+    digCount = pntCount = 0
+    for c in namePrefix:
+        if c.isdigit():
+            digCount += 1
+        elif c == ".":
+            pntCount += 1
+
+    # if comment is IP no name will be assigned
+    return ((digCount > 8) & (pntCount > 2))
+
+def checkNRegName2Long(name):
+    global longNameObjCount
+    # Names longer than 32 characters
+    if len(name) > 32:
+        longNameObjCount += 1
+        longNameObjList.append((numLines, name))
+        print("NAME TOO LONG. Size: %d" % (len(name)))
 
 #Variable initialization
-global dnsData, toWrite, numObjs
+global dnsData, toWrite, numObjs, longNameObjList
 IPOC_DNS = False
 option = 3          #  0-> ACL 1-> NAT 2 -> Siglicusr 3->IPs to addr-obj CFS
-numObjs = numLines = debug = 0
+numObjs = numLines = debug = emptyLines = commentLines = longNameObjCount = 0
+longNameObjList = []
 parsedLines = ""
 toWrite = ""
 
@@ -102,17 +122,26 @@ if IPOC_DNS:
     addedObjects = []
 
 
-if option == 1:
+# Choice of operation to perform
+if option == 0:
     srcFilename = 'IPOACL-toObjs.txt'
     parsedFilename = "IPOACL-toObjs_Parsed.txt"
-elif option == 3:
+elif option == 2:
     srcFilename = 'Docs/siglicusr'
     parsedFilename = 'Docs/siglicusr_Parsed.txt'
-elif option == 4:
-    srcFilename = 'Docs/IPOCParseAllowedIPs/squi_ppl_mal_comportado'
-    parsedFilename = 'Docs/IPOCParseAllowedIPs/squi_ppl_mal_comportado_Parsed.txt'
+elif option == 3:
+    addrObjNames = []
+    #srcFilename = 'Docs/IPOCParseAllowedIPs/squid_ppl_mal_comportado'
+    #parsedFilename = 'Docs/IPOCParseAllowedIPs/squid_ppl_mal_comportado_Parsed.txt'
+    #addrGroupName = "LAN_pplMalComportado[G]"
+    #srcFilename = 'Docs/IPOCParseAllowedIPs/squid_ip_allow'
+    #parsedFilename = 'Docs/IPOCParseAllowedIPs/squid_ip_allow_Parsed.txt'
+    #addrGroupName = "LAN_IPAllow[G]"
+    srcFilename = 'Docs/IPOCParseAllowedIPs/squid_vip'
+    parsedFilename = 'Docs/IPOCParseAllowedIPs/squid_vip_Parsed.txt'
+    addrGroupName = "LAN_VIP[G]"
 
-srcFile = open(srcFilename, 'r')
+srcFile = open(srcFilename, 'r')    #open file to read information
 
 
 if IPOC_DNS:
@@ -214,19 +243,21 @@ if IPOC_DNS:
 else:
     #initialization for siglicusr
     #namePrefix = "LAN_"
-    name = namePrefix = \
-    if option == 3:
+    name = namePrefix = ""
+    if option == 2:
         basename = "LAN_SIGLI_"
-    elif option == 4:
+    elif option == 3:
         basename = "LAN_"
-    #basename = "LAN_"
-    switch = False
+    #switch = False
+
     # Read each line and parse it to excel
     for line in srcFile.readlines():
+        numLines += 1
         line = line.strip()
         if not line:  # if line empty
+            emptyLines +=1
             continue
-        numLines += 1
+
         # ACL
         if option == 0:
             parsedLines += (((line.split("extended",1)[1].strip()).replace(" ","\t")) + "\n")
@@ -249,46 +280,75 @@ else:
         #siglicusr parse
         elif option == 2:
             if line.startswith("#"):
+                commentLines+=1
                 basename = ""       #clear name if repeated #
                 namePrefix = line.split(("#"))[1].strip()
                 basename+= "LAN_SIGLI_%s_" %(namePrefix)
-                #switch = True
+
             else:
                 IP = line.strip()                       #get full IP
                 reducedIP = line.split(".",2)[2]        #Parse IP to display last 2 octecs
                 name = (basename+reducedIP)
-                print ("@Line: %s Name: %s" %(numLines,name))
                 toWrite += "address-object ipv4 %s host %s zone LAN\n" % (name, IP)
                 numObjs+=1
+            print("@Line: %s Name: %s" % (numLines, name))
 
         # IPs to address objects parse
         elif option == 3:
-        if line.startswith("#"):
-            basename = ""  # clear name if repeated #
-            namePrefix = line.split(("#"))[1].strip()
-            basename += "LAN_SIGLI_%s_" % (namePrefix)
-            # switch = True
-        else:
-            IP = line.strip()  # get full IP
-            reducedIP = line.split(".", 2)[2]  # Parse IP to display last 2 octecs
-            name = (basename + reducedIP)
-            print("@Line: %s Name: %s" % (numLines, name))
-            toWrite += "address-object ipv4 %s host %s zone LAN\n" % (name, IP)
-            numObjs += 1
 
+            if line.startswith("#"):
+                commentLines += 1
+                basename = ""  # clear name if repeated #
 
+                namePrefix = line.split(("#"))[1].strip().replace(" ","")
+
+                if commentIsIP(namePrefix):
+                    namePrefix = ""
+                    basename="LAN_"
+                else:
+                    basename += "LAN_%s_" % (namePrefix)
+                #print ("@Line: %d\tDigit Number: %d Point Number: %d" %((numLines),digCount, pntCount))
+
+            else:
+                IP = line.strip()  # get full IP
+                reducedIP = line.split(".", 2)[2]  # Parse IP to display last 2 octecs
+                name = (basename + reducedIP)
+
+                checkNRegName2Long(name)    #verify and register if name too long
+
+                addrObjNames.append(name)   #save names in array to create address-group at the end
+                toWrite += "address-object ipv4 %s host %s zone LAN\n" % (name, IP)
+                numObjs += 1
+
+            print("@Line: %d Name: %s Basename: %s" % (numLines, name, basename))
 
 if debug:
     print ("Parsed Lines: "+parsedLines)
 print ("toWrite\n %s" %(toWrite))
 
+#Creation of address group for the file processed
+print("-----------------------------------------------------------------------")
+print("Creating Address-Group %s obtained from file %s..." %(addrGroupName, srcFilename))
+toWrite +="commit\naddress-group ipv4 %s\n"%(addrGroupName)
+objCount = 0
+for name in addrObjNames:
+    #print("Name: %s" %(name))
+    objCount +=1
+    toWrite+= "address-object ipv4 %s\n" %(name)
+print("Address-Group %s created with %d objects!\n" %(addrGroupName, objCount))
+
 #Write output File
 dstFile = open(parsedFilename,'w')
 dstFile.write(toWrite)
 dstFile.close()
-#parsedAclFile = open(parsedFilename, 'w')
-#parsedAclFile.write(parsedLines)
-#parsedACLFile.close()
-print ("File %s was successfully written!\nNumber of lines processed: %d\nNumber of objects added: %d" % (parsedFilename, numLines,numObjs))
+
+print("-----------------------------------------------------------------------")
+print ("File %s was successfully written!\nNumber of lines processed: %d\nNumber of objects added: %d\nNumber of empty Lines: %d\nNumber of commented lines: %d\n" \
+       % (parsedFilename, numLines,numObjs, emptyLines, commentLines))
+
+print("-----------------------------------------------------------------------")
+print("Number of objects too long: %d\nLong Name Object List:" %(longNameObjCount))
+for name in longNameObjList:
+    print("@Line: %s Name: %s" %(name[0],name[1]))
 
 
