@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import print_function
 from netmiko import ConnectHandler
-import argparse, os, sys, time, socket
+import argparse, os, sys, time, traceback, socket
 from termcolor import colored
 
 def initGlobalVariables():
@@ -17,7 +17,7 @@ def initGlobalVariables():
     dell = [{}]
     user = 'linkcomadmin'
     pwd = 'ascoin2004'
-
+    '''
     hosts = [
                 ('192.168.1.34', 'dell', 'swclouds'),
                 ('10.222.4.35',  'dell', 'swgrandmaster'),
@@ -38,9 +38,29 @@ def initGlobalVariables():
                 ('10.222.4.37', 'dell', 'swiscsi02')
              ]
     '''
-    hosts = [
-        ('10.222.4.36', 'dell', 'swiscsi01'),
-        ('10.222.4.37', 'dell', 'swiscsi02')
+    hosts = [('192.168.1.46', 'dell', 'swpga'),
+             ('192.168.1.47', 'dell', 'swp101'),
+             ('192.168.1.53', 'dell', 'swp301'),
+             ('192.168.1.59', 'dell', 'swp401'),
+             ('192.168.1.60', 'dell', 'swp402'),
+             ('192.168.1.61', 'dell', 'swp501'),
+             ('192.168.1.62', 'dell', 'swp601'),
+             ('192.168.1.65', 'dell', 'swp701')
+             ]
+    '''hosts = [
+                ('192.168.1.46', 'dell', 'swpga'),
+                ('192.168.1.47', 'dell', 'swp101'),
+                ('192.168.1.53', 'dell', 'swp301'),
+                ('192.168.1.59', 'dell', 'swp401'),
+                ('192.168.1.60', 'dell', 'swp402'),
+                ('192.168.1.61', 'dell', 'swp501'),
+                ('192.168.1.62', 'dell', 'swp601'),
+                ('192.168.1.65', 'dell', 'swp701'),
+                ('10.222.4.36',  'dell', 'swiscsi01'),
+                ('10.222.4.37', 'dell', 'swiscsi02'),
+                ('192.168.1.38', 'dell', 'swcore01'),
+                ('192.168.1.39', 'dell', 'swcore02'),
+                ('192.168.1.40', 'dell', 'swmasterdmz')
     ]'''
     dellIdx = 1
     hpIdx = 1
@@ -68,7 +88,6 @@ def parseArgs():
     # else use a static one
     else:
         tftpIP = "192.168.2.38"
-        #tftpIP = "10.222.58.80"
 
     # Check if TFTP is running
     '''sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -99,6 +118,15 @@ def validate_IPv4(s):
             return False
     return True
 
+def composeRunConfigCmd(model, IP, filename):
+    #HP
+    if model == 'hp':
+        cmd = 'copy startup-config tftp ' + tftpIP + ' ' + filename + "\nY"
+    #Dell, Cisco
+    else:
+        cmd = 'copy startup-config tftp://' + tftpIP + '/' + filename + "\nY"
+    return cmd
+
 def readFile(path):
     # Check if file exists
     if not os.path.isfile(path):
@@ -128,45 +156,30 @@ def closeConnection(conn):
     print (colored("Connection to " + host[0] + " successfully closed!",'green'))
 
 def obtainConfigs(conn, name, ip, model):
-    global date, tftpIP, runConfigFile
-    print (colored("\tObtaining Startup-config...",'yellow'))
+    global date, tftpIP
 
     if debug:
-        print(colored("\t\t TFTP Server: " + str(tftpIP),'yellow'))
+        print (colored("\tObtaining Startup-config to TFTP Server %s",'yellow') % (str(tftpIP)))
 
-    if debug:
-        print("\tUsing TFTP Server")
-    '''
-    print("\tVerifying TFTP Connectivity")
-    command = ' ping '+tftpIP
-    comparison ="Reply From "+tftpIP
-    output = conn.send_command(command)
-    if output.find(comparison):
-        print ("Connectivity to TFTP Server Machine : OK",'green')
-    else:
-        print("Connectivity to TFTP Server Machine : NOT OK", 'red')
-    '''
     filename = name + '_' + ip + '_' + date + '.cfg'  # parse filename
 
-    if len(filename) > 32:  # purge string if bigger than 32 charaters
+    if len(filename) > 32:  # purge string if bigger than 32 characters
         filename = name + '_' + date + '.cfg'
 
-    if debug:
-        print (conn.send_command('show running-config'))
+    #if debug:
+    #    print (conn.send_command('show running-config'))
 
-    if model == 'hp':
-        output = conn.send_command(' copy startup-config tftp ' + tftpIP + ' ' + filename)
-    else:   #dell, cisco
-        output = conn.send_command(' copy startup-config tftp://' + tftpIP + '/' + filename)
+    #Construct command
+    cmd = composeRunConfigCmd(model,tftpIP,filename)
+    #Send command to switch
+    output = conn.send_command(command_string=cmd,max_loops=10)
 
-    output = conn.send_command('y')
-    if (debug):
-        print(output)
+    #if debug:
+    #    print ("Command output:"+output)
 
-    print('\tStartup configuration successfully transferred to TFTP Server ' + str(
-        tftpIP) + ' with name \'' + filename + '\' !')
+    print('\tStartup configuration successfully transferred to TFTP Server ' + str(tftpIP) + ' with name \'' + filename + '\' !')
 
-def initDeviceProperties(host, index):
+def initDeviceProperties(host):
     global dellIdx, hpIdx, states
     global dell, hp
     appendedDell = appendedHP = timeoutException = False
@@ -174,6 +187,7 @@ def initDeviceProperties(host, index):
 
     # print ('DellIdx= '+str(dellIdx)+' HpIdx= '+str(hpIdx))dell_force10
     while (timeoutException == True & counter < 3):
+        print ("Counter: %d TimeoutException: %r" %(counter,timeoutException))
         try:
             if counter >= 1:
                 print("Retrying connectivity to host %s. Attempt %d" %(counter, host[0]))
@@ -183,6 +197,8 @@ def initDeviceProperties(host, index):
                 dell.append({'device_type': 'dell_force10', 'ip': host[0],
                              'username': user, 'password': pwd, 'secret': pwd, 'ssh_strict': False})
                 appendedDell = True
+                if debug:
+                    print(colored("Appended Dell!", 'yellow'))
                 conn = ConnectHandler(**dell[dellIdx])
                 dellIdx += 1
 
@@ -190,6 +206,8 @@ def initDeviceProperties(host, index):
                 hp.append({'device_type': 'hp_procurve', 'ip': host[0],
                            'username': user, 'password': pwd, 'secret': pwd, 'ssh_strict': False})
                 appendedHP = True
+                if debug:
+                    print(colored("Appended HP!", 'yellow'))
                 conn = ConnectHandler(**hp[hpIdx])
                 hpIdx += 1
 
@@ -197,22 +215,27 @@ def initDeviceProperties(host, index):
                 print( colored("@initDeviceProperties -> Unrecognized equipment brand !",'red'))
 
             states.append("OK")  # OK
+            print( colored ("Host: %s State: OK!",'green') %(host[2]))
             return conn
 
         except Exception as exception:
+
+            print("Unexpected exception : " + str(sys.exc_info()[0]))
+            print(exception)
+            traceback.print_exc()
+            print("Counter: %d" % (counter))
             # Report state as failed in last try
             if counter == 2:
                 states.append("Failed")
+                print( colored("Host: %s State: Failed!",'red') % (host[2]))
 
             #Removed if device was added
             if appendedDell:
-                dell.remove(-1)
-                appendedDell = False
+                print(colored("Poped Dell!",'yellow'))
+                #dell.pop()
             elif appendedHP:
-                hp.remove(-1)
-                appendedHP = False
-
-            print("Unexpected exception : " + str(sys.exc_info()[0]))
+                #hp.pop()
+                print(colored("Poped HP!", 'yellow'))
 
             if debug:
                 print(colored('@initDeviceProperties -> Check your connectivity status please!','red'))
@@ -222,9 +245,17 @@ def initDeviceProperties(host, index):
                 print (colored("Authentication error. Please check if your credentials are valid.",'red'))
                 sys.exit()
             else:
-                print ("\t@Else->Timeout Exception")
                 timeoutException = True
                 counter += 1
+                print ("\t@Else->Timeout Exception: %r\tCounter increased to %d" %(timeoutException, counter))
+
+        appendedDell = appendedHP = False   #reset flags
+
+    for a in dell:
+        print (a)
+    for b in hp:
+        print (b)
+
 
 # Global structures and variables
 global user, pwd, hosts, dellIdx, hpIdx, dell, hp
@@ -237,40 +268,50 @@ initGlobalVariables()
 parseArgs()
 
 # main loop
-nDevices = 0
-audit = ""
+nDevices = i = 0
+audit = tempAudit = ""
 before = time.time()
 
 for host in hosts:
     nDevices += 1
+
     print (colored('----------------------------------------------------------------------------------'))
     print(colored('-> Processing host %d %s (%s)...' % (nDevices, host[0], host[1].upper()),'yellow'))
 
     # Initialize equipment properties and establish connection
-    conn = initDeviceProperties(host, nDevices)
+    conn = initDeviceProperties(host)
 
     devIP = host[0]
     model = host[1]
     name = host[2]
 
     # Retrieve info for auditing
-    index = nDevices - 1
-    audit += "\tHost: %s\t\tModel: %s\tIP: %s\tState: %s\n" % (name, model, devIP, states[index])
+    print("Index: %d States Length: %d" % (i, len(states)))
+    tempAudit = "\tHost: %s\t\tModel: %s\tIP: %s\tState: %s\n" % (name, model, devIP, states[i])
+    print (colored(tempAudit,'yellow'))
+    i += 1                  #increase state pointer to next device
+    audit+= tempAudit       #append audit from last device
 
     if conn == None:
         print("Moving to next node.")
         continue
 
-    conn.enable()  # enable switch
+    conn.enable()            # enable switch
+    print(conn.send_command('terminal length 0'))
+
+    if debug:
+        print(conn.send_command('terminal length 0'))
+        #print(conn.send_command('show interface status'))
+        #print(conn.send_command('show running-config'))
 
     print("\tHostname: %s IP: %s Model: %s" % (name, devIP, model))
 
     # Obtain and store running config
-    obtainConfigs(conn, name, devIP, model)
+    obtainConfigs(conn, name, devIP, model) #<--PROBLEM
 
     #Close SSH connection
     closeConnection(conn)
-    time.sleep(1)
+    time.sleep(0.5)
 
 after = time.time()
 duration = (after - before)
