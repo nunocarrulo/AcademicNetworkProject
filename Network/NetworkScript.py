@@ -28,7 +28,7 @@ def initGlobalVariables():
     hp = dell = [{}]
     user = 'nunoadmin'
     pwd = '12345lol'
-    hosts = [('192.168.0.13','dell')]
+    hosts = [('192.168.1.46','dell')]
     #hosts=[('192.168.1.19', 'dell'), ('192.168.1.32', 'dell'), ('192.168.1.36', 'hp')]
     dellIdx = 1
     hpIdx = 1
